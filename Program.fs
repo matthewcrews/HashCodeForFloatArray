@@ -1,14 +1,134 @@
+#nowarn "9" "51" "20" // Don't want warnings about pointers
+
 open System
+open FSharp.NativeInterop
+open System.Numerics
+open System.Runtime.Intrinsics.X86
+open System.Runtime.Intrinsics
 open System.Collections.Generic
 open BenchmarkDotNet.Attributes
 open BenchmarkDotNet.Running
 
+
+module Array =
+
+    let sseFloatEquals (a: array<float>) (b: array<float>) =
+        let mutable result = true
+        let mutable idx = 0
+        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+        let aSpan = a.AsSpan ()
+        let bSpan = b.AsSpan ()
+
+        while idx < lastBlockIdx && result do
+            let aVector = Vector128.Create aSpan.[idx]
+            let bVector = Vector128.Create bSpan.[idx]
+            let comparison = Sse2.CompareEqual (aVector, bVector)
+            let matches = Sse2.MoveMask (comparison.AsByte ())
+
+            if matches < Vector128.Count then
+                result <- false
+
+            idx <- idx + Vector128.Count
+
+        while idx < a.Length && idx < b.Length && result do
+            if a.[idx] <> b.[idx] then
+                result <- false
+
+            idx <- idx + 1
+
+        result
+
+
+    let sseIntEquals (a: array<int>) (b: array<int>) =
+        let mutable result = true
+        let mutable idx = 0
+        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+        let aSpan = a.AsSpan ()
+        let bSpan = b.AsSpan ()
+
+        while idx < lastBlockIdx && result do
+            let aVector = Vector128.Create aSpan.[idx]
+            let bVector = Vector128.Create bSpan.[idx]
+            let comparison = Sse2.CompareEqual (aVector, bVector)
+            let matches = Sse2.MoveMask (comparison.AsByte ())
+
+            if matches < Vector128.Count then
+                result <- false
+
+            idx <- idx + Vector128.Count
+
+        while idx < a.Length && idx < b.Length && result do
+            if a.[idx] <> b.[idx] then
+                result <- false
+
+            idx <- idx + 1
+
+        result
+
+    let sseByteEquals (a: Span<Byte>) (b: Span<Byte>) =
+        let mutable result = true
+        let mutable idx = 0
+        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+
+        while idx < lastBlockIdx && result do
+            let aVector = Vector128.Create a.[idx]
+            let bVector = Vector128.Create b.[idx]
+            let comparison = Sse2.CompareEqual (aVector, bVector)
+            let matches = Sse2.MoveMask (comparison.AsByte ())
+
+            if matches < Vector128.Count then
+                result <- false
+
+            idx <- idx + Vector128.Count
+
+        while idx < a.Length && idx < b.Length && result do
+            if a.[idx] <> b.[idx] then
+                result <- false
+
+            idx <- idx + 1
+
+        result
 
 type Settings_Default = {
     Capacities : array<float>
     MaxRates : array<float>
     ValveStates : array<int>
 }
+
+[<CustomEquality; NoComparison>]
+type Settings_SIMD_Equality = {
+    Capacities : array<float>
+    MaxRates : array<float>
+    ValveStates : array<int>
+} with
+    override this.GetHashCode () =
+        hash (struct (this.Capacities, this.MaxRates, this.ValveStates))
+
+    override this.Equals b =
+        match b with
+        | :? Settings_SIMD_Equality as other ->
+            (Array.sseFloatEquals this.Capacities other.Capacities)
+            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
+            && (Array.sseIntEquals this.ValveStates other.ValveStates)
+        | _ -> false
+
+[<Struct; CustomEquality; NoComparison>]
+type Settings_SIMD_Byte = {
+    Capacities : array<float>
+    MaxRates : array<float>
+    ValveStates : array<int>
+} with
+    override this.GetHashCode () =
+        hash (struct (this.Capacities, this.MaxRates, this.ValveStates))
+
+    override this.Equals b =
+        match b with
+        | :? Settings_SIMD_Equality as other ->
+            (Array.sseFloatEquals this.Capacities other.Capacities)
+            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
+            && (Array.sseIntEquals this.ValveStates other.ValveStates)
+        | _ -> false
+
 
 [<CustomEquality; NoComparison>]
 type Settings_Terrible = {
@@ -181,6 +301,28 @@ let terribleSettingsTestLookups =
             terribleSettings.[idx]
     } |> Array.ofSeq
 
+// Data for Settings_SIMD_Equality
+let simdEqualitySettings =
+    seq {
+        for vi in valueIndexes ->
+        {
+            Capacities = capacities.[vi.CapacityIdx]
+            MaxRates = maxRates.[vi.MaxRateIdx]
+            ValveStates = valveStates.[vi.ValveStateIdx]
+        } : Settings_SIMD_Equality
+    } |> Array.ofSeq
+
+let simdEqualitySettingsLookup =
+    terribleSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let simdEqualitySettingsTestLookups =
+    seq {
+        for idx in testIndexes ->
+            terribleSettings.[idx]
+    } |> Array.ofSeq
+
 
 type Benchmarks () =
 
@@ -216,9 +358,37 @@ type Benchmarks () =
 
         result
 
+    [<Benchmark>]
+    member _.SIMD_Equality () =
+        // Want a fresh RNG with a seed to ensure all versions use
+        // the same lookups.
+        let rng = Random (1337)
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < simdEqualitySettingsTestLookups.Length do
+            let testKey = simdEqualitySettingsTestLookups.[idx]
+            result <- simdEqualitySettingsLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
 
 [<EntryPoint>]
 let main argv =
     let summary = BenchmarkRunner.Run<Benchmarks>()
+
+    // let a = [|1.0 .. 100.0|]
+    // let b = [|1.0 .. 100.0|]
+
+    // let r1 = Array.sseFloatEquals a b
+    // printfn $"Result 1: {r1}"
+
+    // let c = [|1.0 .. 100.0|]
+    // c.[0] <- 10.0
+
+    // let r2 = Array.sseFloatEquals a c
+    // printfn $"Result 2: {r2}"
 
     0 // return an integer exit code
