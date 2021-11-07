@@ -10,7 +10,24 @@ open BenchmarkDotNet.Attributes
 open BenchmarkDotNet.Running
 
 
+
+
 module Array =
+
+    let inline HashCombine nr x y = (x <<< 1) + y + 631 * nr
+    let private defaultHashNodes = 18
+
+    // A derivative of the F# code for array<int32> and array<int64>
+    // https://github.com/dotnet/fsharp/blob/main/src/fsharp/FSharp.Core/prim-types.fs#L1277
+    let floatHash (x: array<float>) =
+        let len = x.Length
+        let mutable i = len - 1 
+        if i > defaultHashNodes then i <- defaultHashNodes // limit the hash
+        let mutable acc = 0   
+        while (i >= 0) do 
+            acc <- HashCombine i acc (int32 x.[i]);
+            i <- i - 1
+        acc
 
     let sseFloatEquals (a: array<float>) (b: array<float>) =
         let mutable result = true
@@ -29,6 +46,32 @@ module Array =
                 result <- false
 
             idx <- idx + Vector128.Count
+
+        while idx < a.Length && idx < b.Length && result do
+            if a.[idx] <> b.[idx] then
+                result <- false
+
+            idx <- idx + 1
+
+        result
+
+    let avxFloatEquals (a: array<float>) (b: array<float>) =
+        let mutable result = true
+        let mutable idx = 0
+        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+        let aSpan = a.AsSpan ()
+        let bSpan = b.AsSpan ()
+
+        while idx < lastBlockIdx && result do
+            let aVector = Vector256.Create aSpan.[idx]
+            let bVector = Vector256.Create bSpan.[idx]
+            let comparison = Avx2.CompareEqual (aVector, bVector)
+            let matches = Avx2.MoveMask (comparison.AsByte ())
+
+            if matches < Vector256.Count then
+                result <- false
+
+            idx <- idx + Vector256.Count
 
         while idx < a.Length && idx < b.Length && result do
             if a.[idx] <> b.[idx] then
@@ -65,21 +108,23 @@ module Array =
 
         result
 
-    let sseByteEquals (a: Span<Byte>) (b: Span<Byte>) =
+    let avxIntEquals (a: array<int>) (b: array<int>) =
         let mutable result = true
         let mutable idx = 0
         let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+        let aSpan = a.AsSpan ()
+        let bSpan = b.AsSpan ()
 
         while idx < lastBlockIdx && result do
-            let aVector = Vector128.Create a.[idx]
-            let bVector = Vector128.Create b.[idx]
-            let comparison = Sse2.CompareEqual (aVector, bVector)
-            let matches = Sse2.MoveMask (comparison.AsByte ())
+            let aVector = Vector256.Create aSpan.[idx]
+            let bVector = Vector256.Create bSpan.[idx]
+            let comparison = Avx2.CompareEqual (aVector, bVector)
+            let matches = Avx2.MoveMask (comparison.AsByte ())
 
-            if matches < Vector128.Count then
+            if matches < Vector256.Count then
                 result <- false
 
-            idx <- idx + Vector128.Count
+            idx <- idx + Vector256.Count
 
         while idx < a.Length && idx < b.Length && result do
             if a.[idx] <> b.[idx] then
@@ -89,92 +134,160 @@ module Array =
 
         result
 
-type Settings_Default = {
+
+[<Struct>]
+type Settings = {
     Capacities : array<float>
     MaxRates : array<float>
     ValveStates : array<int>
 }
 
-[<CustomEquality; NoComparison>]
-type Settings_SIMD_Equality = {
-    Capacities : array<float>
-    MaxRates : array<float>
-    ValveStates : array<int>
-} with
-    override this.GetHashCode () =
-        hash (struct (this.Capacities, this.MaxRates, this.ValveStates))
 
-    override this.Equals b =
-        match b with
-        | :? Settings_SIMD_Equality as other ->
-            (Array.sseFloatEquals this.Capacities other.Capacities)
-            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
-            && (Array.sseIntEquals this.ValveStates other.ValveStates)
-        | _ -> false
+type SimpleComparer () =
+    interface IEqualityComparer<Settings> with
+        member _.Equals (a, b) =
+            a.Capacities = b.Capacities
+            && a.MaxRates = b.MaxRates
+            && a.ValveStates = b.ValveStates
+            
+        member _.GetHashCode (a) =
+            let capacitiesHash = Array.floatHash a.Capacities
+            let maxRatesHash = Array.floatHash a.MaxRates
+            // Using a different method because F# has speciliazed code for array<int>
+            let valveStatesHash = a.ValveStates.GetHashCode ()
+
+            hash (struct (capacitiesHash, maxRatesHash, valveStatesHash))
+
+
+type SseComparer () =
+    interface IEqualityComparer<Settings> with
+        member _.Equals (a, b) =
+            (Array.sseFloatEquals a.Capacities b.Capacities)
+            && (Array.sseFloatEquals a.MaxRates b.MaxRates)
+            && (Array.sseIntEquals a.ValveStates b.ValveStates)
+
+        member _.GetHashCode (a) =
+            let capacitiesHash = Array.floatHash a.Capacities
+            let maxRatesHash = Array.floatHash a.MaxRates
+            // Using a different method because F# has speciliazed code for array<int>
+            let valveStatesHash = a.ValveStates.GetHashCode ()
+
+            capacitiesHash ^^^ maxRatesHash ^^^ valveStatesHash
+
+
+type AvxComparer () =
+    interface IEqualityComparer<Settings> with
+        member _.Equals (a, b) =
+            (Array.avxFloatEquals a.Capacities b.Capacities)
+            && (Array.avxFloatEquals a.MaxRates b.MaxRates)
+            && (Array.avxIntEquals a.ValveStates b.ValveStates)
+
+        member _.GetHashCode (a) =
+            let capacitiesHash = Array.floatHash a.Capacities
+            let maxRatesHash = Array.floatHash a.MaxRates
+            // Using a different method because F# has speciliazed code for array<int>
+            let valveStatesHash = a.ValveStates.GetHashCode ()
+
+            capacitiesHash ^^^ maxRatesHash ^^^ valveStatesHash
+
 
 [<Struct; CustomEquality; NoComparison>]
-type Settings_SIMD_Byte = {
+type SettingsSimpleOverride = {
     Capacities : array<float>
     MaxRates : array<float>
     ValveStates : array<int>
 } with
     override this.GetHashCode () =
-        hash (struct (this.Capacities, this.MaxRates, this.ValveStates))
+        let capacitiesHash = Array.floatHash this.Capacities
+        let maxRatesHash = Array.floatHash this.MaxRates
+        // Using a different method because F# has speciliazed code for array<int>
+        let valveStatesHash = this.ValveStates.GetHashCode ()
+
+        hash (struct (capacitiesHash, maxRatesHash, valveStatesHash))
 
     override this.Equals b =
         match b with
-        | :? Settings_SIMD_Equality as other ->
-            (Array.sseFloatEquals this.Capacities other.Capacities)
-            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
-            && (Array.sseIntEquals this.ValveStates other.ValveStates)
-        | _ -> false
-
-
-[<CustomEquality; NoComparison>]
-type Settings_Terrible = {
-    Capacities : array<float>
-    MaxRates : array<float>
-    ValveStates : array<int>
-} with
-    override this.GetHashCode () =
-        let capacityHash =
-            let mutable acc = 1610612741
-            let mutable idx = 0
-            while idx < this.Capacities.Length do
-                acc <- acc ^^^ this.Capacities.[idx].GetHashCode ()
-                idx <- idx + 1
-
-            acc
-
-        let maxRatesHash =
-            let mutable acc = 1610612741
-            let mutable idx = 0
-            while idx < this.MaxRates.Length do
-                acc <- acc ^^^ this.MaxRates.[idx].GetHashCode ()
-                idx <- idx + 1
-
-            acc
-
-        let valveStatesHash =
-            let mutable acc = 1610612741
-            let mutable idx = 0
-            while idx < this.ValveStates.Length do
-                acc <- acc ^^^ this.ValveStates.[idx].GetHashCode ()
-                idx <- idx + 1
-
-            acc
-
-        capacityHash ^^^ maxRatesHash ^^^ valveStatesHash
-
-    override this.Equals b =
-        match b with
-        | :? Settings_Terrible as other ->
+        | :? SettingsSimpleOverride as other ->
             this.Capacities = other.Capacities
             && this.MaxRates = other.MaxRates
             && this.ValveStates = other.ValveStates
         | _ -> false
 
 
+[<Struct; CustomEquality; NoComparison>]
+type SettingsJeorg = {
+    Capacities : array<float>
+    MaxRates : array<float>
+    ValveStates : array<int>
+} with
+    override this.GetHashCode () =
+        let bytes = Array.concat [|
+            this.Capacities |> Array.map (fun (f:float) -> BitConverter.GetBytes(f)) |> Array.concat
+            this.MaxRates |> Array.map (fun (f:float) -> BitConverter.GetBytes(f)) |> Array.concat
+            this.ValveStates |> Array.map (fun (i:int) -> BitConverter.GetBytes(i)) |> Array.concat
+        |]
+        let sha256 = Security.Cryptography.SHA256.Create().ComputeHash(bytes)
+        // only the first 4 bytes are used but the SHA-2 has the property that any sub-range is also 
+        // usable but with increased chance of collision of course.
+        BitConverter.ToInt32(sha256, 0) 
+
+    override this.Equals b =
+        match b with
+        | :? SettingsJeorg as other ->
+            (Array.sseFloatEquals this.Capacities other.Capacities)
+            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
+            && (Array.sseIntEquals this.ValveStates other.ValveStates)
+        | _ -> false
+
+
+[<CustomEquality; NoComparison>]
+type SettingsSseOverride = {
+    Capacities : array<float>
+    MaxRates : array<float>
+    ValveStates : array<int>
+} with
+    override this.GetHashCode () =
+        let capacitiesHash = Array.floatHash this.Capacities
+        let maxRatesHash = Array.floatHash this.MaxRates
+        // Using a different method because F# has speciliazed code for array<int>
+        let valveStatesHash = this.ValveStates.GetHashCode ()
+
+        // hash (struct (capacitiesHash, maxRatesHash, valveStatesHash))
+        capacitiesHash ^^^ maxRatesHash ^^^ valveStatesHash
+
+    override this.Equals b =
+        match b with
+        | :? SettingsSseOverride as other ->
+            (Array.sseFloatEquals this.Capacities other.Capacities)
+            && (Array.sseFloatEquals this.MaxRates other.MaxRates)
+            && (Array.sseIntEquals this.ValveStates other.ValveStates)
+        | _ -> false
+
+[<CustomEquality; NoComparison>]
+type SettingsAvxOverride = {
+    Capacities : array<float>
+    MaxRates : array<float>
+    ValveStates : array<int>
+} with
+    override this.GetHashCode () =
+        let capacitiesHash = Array.floatHash this.Capacities
+        let maxRatesHash = Array.floatHash this.MaxRates
+        // Using a different method because F# has speciliazed code for array<int>
+        let valveStatesHash = this.ValveStates.GetHashCode ()
+
+        // hash (struct (capacitiesHash, maxRatesHash, valveStatesHash))
+        capacitiesHash ^^^ maxRatesHash ^^^ valveStatesHash
+
+    override this.Equals b =
+        match b with
+        | :? SettingsSseOverride as other ->
+            (Array.avxFloatEquals this.Capacities other.Capacities)
+            && (Array.avxFloatEquals this.MaxRates other.MaxRates)
+            && (Array.avxIntEquals this.ValveStates other.ValveStates)
+        | _ -> false
+
+
+// Setting up test data
 let rng = Random (123)
 let maxCapacityValue = 1_000_000.0
 let maxRateValue = 100_000.0
@@ -251,125 +364,282 @@ let testIndexes =
 
 // This Settings type will use the default hash functionality built
 // into .NET
-let defaultSettings =
+let settings =
     seq {
         for vi in valueIndexes ->
         {
             Capacities = capacities.[vi.CapacityIdx]
             MaxRates = maxRates.[vi.MaxRateIdx]
             ValveStates = valveStates.[vi.ValveStateIdx]
-        } : Settings_Default
+        } : Settings
     } |> Array.ofSeq
 
 
 // The dictionary for the Default Settings we will test lookup up values in
-let defaultSettingsLookup =
-    defaultSettings
+let settingsLookup =
+    settings
     |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
     |> Dictionary
+
+
+let settingsSimpleComparerLookup =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = SimpleComparer ()
+    Dictionary (values, comparer)
+
+let settingsSseComparerLookup =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = SseComparer ()
+    Dictionary (values, comparer)
+
+let settingsAvxComparerLookup =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = AvxComparer ()
+    Dictionary (values, comparer)
 
 
 // We create an array we will iterate through to lookup values in
 // the Dictionary. We lay it out in an array to provide the best
 // possible data locality in the loop.
-let defaultSettingsTestLookups =
+let settingsTestLookups =
     seq {
         for idx in testIndexes ->
-            defaultSettings.[idx]
+            settings.[idx]
     } |> Array.ofSeq
 
 
 // Data for Settings_Terrible
-let terribleSettings =
+let simpleOverrideSettings =
     seq {
         for vi in valueIndexes ->
         {
             Capacities = capacities.[vi.CapacityIdx]
             MaxRates = maxRates.[vi.MaxRateIdx]
             ValveStates = valveStates.[vi.ValveStateIdx]
-        } : Settings_Terrible
+        } : SettingsSimpleOverride
     } |> Array.ofSeq
 
-let terribleSettingsLookup =
-    terribleSettings
+let simpleOverrideSettingsLookup =
+    simpleOverrideSettings
     |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
     |> Dictionary
 
-let terribleSettingsTestLookups =
+let simpleOverrideSettingsTestLookups =
     seq {
         for idx in testIndexes ->
-            terribleSettings.[idx]
+            simpleOverrideSettings.[idx]
     } |> Array.ofSeq
 
 // Data for Settings_SIMD_Equality
-let simdEqualitySettings =
+let sseOverrideSettings =
     seq {
         for vi in valueIndexes ->
         {
             Capacities = capacities.[vi.CapacityIdx]
             MaxRates = maxRates.[vi.MaxRateIdx]
             ValveStates = valveStates.[vi.ValveStateIdx]
-        } : Settings_SIMD_Equality
+        } : SettingsSseOverride
     } |> Array.ofSeq
 
-let simdEqualitySettingsLookup =
-    terribleSettings
+let sseOverrideSettingsLookup =
+    sseOverrideSettings
     |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
     |> Dictionary
 
-let simdEqualitySettingsTestLookups =
+let sseOverrideSettingsTestLookups =
     seq {
         for idx in testIndexes ->
-            terribleSettings.[idx]
+            sseOverrideSettings.[idx]
+    } |> Array.ofSeq
+
+// Data for Settings_SIMD_Equality
+let avxOverrideSettings =
+    seq {
+        for vi in valueIndexes ->
+        {
+            Capacities = capacities.[vi.CapacityIdx]
+            MaxRates = maxRates.[vi.MaxRateIdx]
+            ValveStates = valveStates.[vi.ValveStateIdx]
+        } : SettingsAvxOverride
+    } |> Array.ofSeq
+
+let avxOverrideSettingsLookup =
+    avxOverrideSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let avxOverrideSettingsTestLookups =
+    seq {
+        for idx in testIndexes ->
+            avxOverrideSettings.[idx]
+    } |> Array.ofSeq
+
+// Data for Settings_SIMD_Equality
+let jeorgSettings =
+    seq {
+        for vi in valueIndexes ->
+        {
+            Capacities = capacities.[vi.CapacityIdx]
+            MaxRates = maxRates.[vi.MaxRateIdx]
+            ValveStates = valveStates.[vi.ValveStateIdx]
+        } : SettingsJeorg
+    } |> Array.ofSeq
+
+let jeorgSettingsLookup =
+    jeorgSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let jeorgSettingsTestLookups =
+    seq {
+        for idx in testIndexes ->
+            jeorgSettings.[idx]
     } |> Array.ofSeq
 
 
 type Benchmarks () =
 
     [<Benchmark>]
-    member _.DefaultHash () =
-        // Want a fresh RNG with a seed to ensure all versions use
-        // the same lookups.
-        let rng = Random (1337)
+    member _.Default () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < defaultSettingsTestLookups.Length do
-            let testKey = defaultSettingsTestLookups.[idx]
-            result <- defaultSettingsLookup.[testKey]
+        while idx < settingsTestLookups.Length do
+            let testKey = settingsTestLookups.[idx]
+            result <- settingsLookup.[testKey]
 
             idx <- idx + 1
 
         result
 
+
     [<Benchmark>]
-    member _.TerribleHash () =
-        // Want a fresh RNG with a seed to ensure all versions use
-        // the same lookups.
-        let rng = Random (1337)
+    member _.SimpleComparer () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < terribleSettingsTestLookups.Length do
-            let testKey = terribleSettingsTestLookups.[idx]
-            result <- terribleSettingsLookup.[testKey]
+        while idx < settingsTestLookups.Length do
+            let testKey = settingsTestLookups.[idx]
+            result <- settingsSimpleComparerLookup.[testKey]
 
             idx <- idx + 1
 
         result
 
+
     [<Benchmark>]
-    member _.SIMD_Equality () =
-        // Want a fresh RNG with a seed to ensure all versions use
-        // the same lookups.
-        let rng = Random (1337)
+    member _.SseComparer () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < simdEqualitySettingsTestLookups.Length do
-            let testKey = simdEqualitySettingsTestLookups.[idx]
-            result <- simdEqualitySettingsLookup.[testKey]
+        while idx < settingsTestLookups.Length do
+            let testKey = settingsTestLookups.[idx]
+            result <- settingsSseComparerLookup.[testKey]
 
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.AvxComparer () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < settingsTestLookups.Length do
+            let testKey = settingsTestLookups.[idx]
+            result <- settingsAvxComparerLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.SimpleOverride () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < simpleOverrideSettingsTestLookups.Length do
+            let testKey = simpleOverrideSettingsTestLookups.[idx]
+            result <- simpleOverrideSettingsLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.SseOverride () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < sseOverrideSettingsTestLookups.Length do
+            let testKey = sseOverrideSettingsTestLookups.[idx]
+            result <- sseOverrideSettingsLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.AvxOverride () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < avxOverrideSettingsTestLookups.Length do
+            let testKey = avxOverrideSettingsTestLookups.[idx]
+            result <- avxOverrideSettingsLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.Jeorg () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < jeorgSettingsTestLookups.Length do
+            let testKey = jeorgSettingsTestLookups.[idx]
+            result <- jeorgSettingsLookup.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+
+let profileCustom () =
+        let mutable idx = 0
+        let mutable result = 0
+        let iterations = 10_000_000
+        let rng = Random 42
+
+        while idx < iterations do
+            let testKey = simpleOverrideSettingsTestLookups.[rng.Next (0, simpleOverrideSettingsTestLookups.Length)]
+            result <- simpleOverrideSettingsLookup.[testKey]
+            idx <- idx + 1
+
+        result
+
+let profileSse () =
+        let mutable idx = 0
+        let mutable result = 0
+        let iterations = 10_000_000
+        let rng = Random 42
+
+        while idx < iterations do
+            let testKey = sseOverrideSettingsTestLookups.[rng.Next (0, sseOverrideSettingsTestLookups.Length)]
+            result <- sseOverrideSettingsLookup.[testKey]
             idx <- idx + 1
 
         result
@@ -377,18 +647,19 @@ type Benchmarks () =
 
 [<EntryPoint>]
 let main argv =
-    let summary = BenchmarkRunner.Run<Benchmarks>()
 
-    // let a = [|1.0 .. 100.0|]
-    // let b = [|1.0 .. 100.0|]
+    match argv.[0].ToLower() with
+    | "benchmark" ->
+        let summary = BenchmarkRunner.Run<Benchmarks>()
+        ()
+    | "profilecustom" ->
+        let result = profileCustom ()
+        printfn "%A" result
+    | "profilesse" ->
+        let result = profileSse ()
+        printfn "%A" result
+    | _ ->
+        printfn $"Unknown command: {argv.[0]}"
 
-    // let r1 = Array.sseFloatEquals a b
-    // printfn $"Result 1: {r1}"
-
-    // let c = [|1.0 .. 100.0|]
-    // c.[0] <- 10.0
-
-    // let r2 = Array.sseFloatEquals a c
-    // printfn $"Result 2: {r2}"
 
     0 // return an integer exit code
