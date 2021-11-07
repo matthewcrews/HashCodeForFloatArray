@@ -30,109 +30,139 @@ module Array =
         acc
 
     let sseFloatEquals (a: array<float>) (b: array<float>) =
-        let mutable result = true
-        let mutable idx = 0
-        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
-        let aSpan = a.AsSpan ()
-        let bSpan = b.AsSpan ()
+        if a.Length = b.Length then
+            let mutable result = true
+            let mutable idx = 0
+            
+            if a.Length > 4 then
+                let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+                let aSpan = a.AsSpan ()
+                let bSpan = b.AsSpan ()
+                let aPointer = && (aSpan.GetPinnableReference ())
+                let bPointer = && (bSpan.GetPinnableReference ())
 
-        while idx < lastBlockIdx && result do
-            let aVector = Vector128.Create aSpan.[idx]
-            let bVector = Vector128.Create bSpan.[idx]
-            let comparison = Sse2.CompareEqual (aVector, bVector)
-            let matches = Sse2.MoveMask (comparison.AsByte ())
+                while idx < lastBlockIdx && result do
+                    let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
+                    let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
+                    let comparison = Sse2.CompareEqual (aVector, bVector)
+                    let matches = Sse2.MoveMask (comparison.AsByte ())
 
-            if matches < Vector128.Count then
-                result <- false
+                    if matches < Vector128.Count then
+                        result <- false
 
-            idx <- idx + Vector128.Count
+                    idx <- idx + Vector128.Count
 
-        while idx < a.Length && idx < b.Length && result do
-            if a.[idx] <> b.[idx] then
-                result <- false
+            while idx < a.Length && idx < b.Length && result do
+                if a.[idx] <> b.[idx] then
+                    result <- false
 
-            idx <- idx + 1
+                idx <- idx + 1
 
-        result
+            result
+
+        else
+            false
 
     let avxFloatEquals (a: array<float>) (b: array<float>) =
-        let mutable result = true
-        let mutable idx = 0
-        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
-        let aSpan = a.AsSpan ()
-        let bSpan = b.AsSpan ()
+        if a.Length = b.Length then
+            let mutable result = true
+            let mutable idx = 0
+            // let lastBlockIdx = a.Length - (a.Length % Vector256.Count)
+            // let aSpan = a.AsSpan ()
+            // let bSpan = b.AsSpan ()
 
-        while idx < lastBlockIdx && result do
-            let aVector = Vector256.Create aSpan.[idx]
-            let bVector = Vector256.Create bSpan.[idx]
-            let comparison = Avx2.CompareEqual (aVector, bVector)
-            let matches = Avx2.MoveMask (comparison.AsByte ())
+            // if a.Length > 8 then
+            //     while idx < lastBlockIdx && result do
+            //         let aVector = Vector256.Create aSpan.[idx]
+            //         let bVector = Vector256.Create bSpan.[idx]
+            //         let comparison = Avx2.CompareEqual (aVector, bVector)
+            //         let matches = Avx2.MoveMask (comparison.AsByte ())
 
-            if matches < Vector256.Count then
-                result <- false
+            //         if matches < Vector256.Count then
+            //             result <- false
 
-            idx <- idx + Vector256.Count
+            //         idx <- idx + Vector256.Count
 
-        while idx < a.Length && idx < b.Length && result do
-            if a.[idx] <> b.[idx] then
-                result <- false
+            while idx < a.Length && idx < b.Length && result do
+                if a.[idx] <> b.[idx] then
+                    result <- false
 
-            idx <- idx + 1
+                idx <- idx + 1
 
-        result
+            result
+
+        else
+            false
 
 
     let sseIntEquals (a: array<int>) (b: array<int>) =
-        let mutable result = true
-        let mutable idx = 0
-        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
-        let aSpan = a.AsSpan ()
-        let bSpan = b.AsSpan ()
+        if a.Length = b.Length then
+            let mutable result = true
+            let mutable idx = 0
+            
+            if a.Length > 4 then
+                let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+                let aSpan = a.AsSpan ()
+                let bSpan = b.AsSpan ()
+                let aPointer = && (aSpan.GetPinnableReference ())
+                let bPointer = && (bSpan.GetPinnableReference ())
 
-        while idx < lastBlockIdx && result do
-            let aVector = Vector128.Create aSpan.[idx]
-            let bVector = Vector128.Create bSpan.[idx]
-            let comparison = Sse2.CompareEqual (aVector, bVector)
-            let matches = Sse2.MoveMask (comparison.AsByte ())
+                while idx < lastBlockIdx && result do
+                    let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
+                    let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
+                    let comparison = Sse2.CompareEqual (aVector, bVector)
+                    let matches = Sse2.MoveMask (comparison.AsByte ())
 
-            if matches < Vector128.Count then
-                result <- false
+                    if matches < Vector128.Count then
+                        result <- false
 
-            idx <- idx + Vector128.Count
+                    idx <- idx + Vector128.Count
 
-        while idx < a.Length && idx < b.Length && result do
-            if a.[idx] <> b.[idx] then
-                result <- false
+            while idx < a.Length && idx < b.Length && result do
+                if a.[idx] <> b.[idx] then
+                    result <- false
 
-            idx <- idx + 1
+                idx <- idx + 1
 
-        result
+            result
+
+        else
+            false
 
     let avxIntEquals (a: array<int>) (b: array<int>) =
-        let mutable result = true
-        let mutable idx = 0
-        let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
-        let aSpan = a.AsSpan ()
-        let bSpan = b.AsSpan ()
+        if a.Length = b.Length then
+            let mutable result = true
+            let mutable idx = 0
 
-        while idx < lastBlockIdx && result do
-            let aVector = Vector256.Create aSpan.[idx]
-            let bVector = Vector256.Create bSpan.[idx]
-            let comparison = Avx2.CompareEqual (aVector, bVector)
-            let matches = Avx2.MoveMask (comparison.AsByte ())
+            if a.Length > 8 then
+                let lastBlockIdx = a.Length - (a.Length % Vector256.Count)
+                let aSpan = a.AsSpan ()
+                let bSpan = b.AsSpan ()
+                let aPointer = && (aSpan.GetPinnableReference ())
+                let bPointer = && (bSpan.GetPinnableReference ())
 
-            if matches < Vector256.Count then
-                result <- false
+                while idx < lastBlockIdx && result do
+                    let aVector = Avx2.LoadVector256 (NativePtr.add aPointer idx)
+                    let bVector = Avx2.LoadVector256 (NativePtr.add bPointer idx)
+                    let comparison = Avx2.CompareEqual (aVector, bVector)
+                    let matches = Avx2.MoveMask (comparison.AsByte ())
 
-            idx <- idx + Vector256.Count
+                    if matches < Vector256.Count then
+                        result <- false
 
-        while idx < a.Length && idx < b.Length && result do
-            if a.[idx] <> b.[idx] then
-                result <- false
+                    idx <- idx + Vector256.Count
 
-            idx <- idx + 1
+            // Cleanup loop
+            while idx < a.Length && idx < b.Length && result do
+                if a.[idx] <> b.[idx] then
+                    result <- false
 
-        result
+                idx <- idx + 1
+
+            result
+
+        else
+            false
 
 
 [<Struct>]
@@ -240,7 +270,7 @@ type SettingsJeorg = {
         | _ -> false
 
 
-[<CustomEquality; NoComparison>]
+[<Struct; CustomEquality; NoComparison>]
 type SettingsSseOverride = {
     Capacities : array<float>
     MaxRates : array<float>
@@ -263,7 +293,7 @@ type SettingsSseOverride = {
             && (Array.sseIntEquals this.ValveStates other.ValveStates)
         | _ -> false
 
-[<CustomEquality; NoComparison>]
+[<Struct; CustomEquality; NoComparison>]
 type SettingsAvxOverride = {
     Capacities : array<float>
     MaxRates : array<float>
@@ -280,7 +310,7 @@ type SettingsAvxOverride = {
 
     override this.Equals b =
         match b with
-        | :? SettingsSseOverride as other ->
+        | :? SettingsAvxOverride as other ->
             (Array.avxFloatEquals this.Capacities other.Capacities)
             && (Array.avxFloatEquals this.MaxRates other.MaxRates)
             && (Array.avxIntEquals this.ValveStates other.ValveStates)
@@ -507,46 +537,46 @@ let jeorgKeys =
 
 type Benchmarks () =
 
-    [<Benchmark>]
-    member _.Default () =
-        let mutable idx = 0
-        let mutable result = 0
+    // [<Benchmark>]
+    // member _.Default () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
 
-        while idx < settingsKeys.Length do
-            let testKey = settingsKeys.[idx]
-            result <- settingsDictionary.[testKey]
+    //     while idx < settingsKeys.Length do
+    //         let testKey = settingsKeys.[idx]
+    //         result <- settingsDictionary.[testKey]
 
-            idx <- idx + 1
+    //         idx <- idx + 1
 
-        result
-
-
-    [<Benchmark>]
-    member _.SimpleComparer () =
-        let mutable idx = 0
-        let mutable result = 0
-
-        while idx < settingsKeys.Length do
-            let testKey = settingsKeys.[idx]
-            result <- settingsDictionary.[testKey]
-
-            idx <- idx + 1
-
-        result
+    //     result
 
 
-    [<Benchmark>]
-    member _.SseComparer () =
-        let mutable idx = 0
-        let mutable result = 0
+    // [<Benchmark>]
+    // member _.SimpleComparer () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
 
-        while idx < settingsKeys.Length do
-            let testKey = settingsKeys.[idx]
-            result <- sseComparerDictionary.[testKey]
+    //     while idx < settingsKeys.Length do
+    //         let testKey = settingsKeys.[idx]
+    //         result <- settingsDictionary.[testKey]
 
-            idx <- idx + 1
+    //         idx <- idx + 1
 
-        result
+    //     result
+
+
+    // [<Benchmark>]
+    // member _.SseComparer () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
+
+    //     while idx < settingsKeys.Length do
+    //         let testKey = settingsKeys.[idx]
+    //         result <- sseComparerDictionary.[testKey]
+
+    //         idx <- idx + 1
+
+    //     result
 
 
     [<Benchmark>]
@@ -563,32 +593,32 @@ type Benchmarks () =
         result
 
 
-    [<Benchmark>]
-    member _.SimpleOverride () =
-        let mutable idx = 0
-        let mutable result = 0
+    // [<Benchmark>]
+    // member _.SimpleOverride () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
 
-        while idx < simpleOverrideKeys.Length do
-            let testKey = simpleOverrideKeys.[idx]
-            result <- simpleOverrideDictionary.[testKey]
+    //     while idx < simpleOverrideKeys.Length do
+    //         let testKey = simpleOverrideKeys.[idx]
+    //         result <- simpleOverrideDictionary.[testKey]
 
-            idx <- idx + 1
+    //         idx <- idx + 1
 
-        result
+    //     result
 
 
-    [<Benchmark>]
-    member _.SseOverride () =
-        let mutable idx = 0
-        let mutable result = 0
+    // [<Benchmark>]
+    // member _.SseOverride () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
 
-        while idx < sseOverrideKeys.Length do
-            let testKey = sseOverrideKeys.[idx]
-            result <- sseOverrideDictionary.[testKey]
+    //     while idx < sseOverrideKeys.Length do
+    //         let testKey = sseOverrideKeys.[idx]
+    //         result <- sseOverrideDictionary.[testKey]
 
-            idx <- idx + 1
+    //         idx <- idx + 1
 
-        result
+    //     result
 
 
     [<Benchmark>]
@@ -605,18 +635,18 @@ type Benchmarks () =
         result
 
 
-    [<Benchmark>]
-    member _.Jeorg () =
-        let mutable idx = 0
-        let mutable result = 0
+    // [<Benchmark>]
+    // member _.Jeorg () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
 
-        while idx < jeorgKeys.Length do
-            let testKey = jeorgKeys.[idx]
-            result <- jeorgSettingsDictionary.[testKey]
+    //     while idx < jeorgKeys.Length do
+    //         let testKey = jeorgKeys.[idx]
+    //         result <- jeorgSettingsDictionary.[testKey]
 
-            idx <- idx + 1
+    //         idx <- idx + 1
 
-        result
+    //     result
 
 
 
@@ -646,22 +676,38 @@ let profileSse () =
 
         result
 
+let profileAvx () =
+        let mutable idx = 0
+        let mutable result = 0
+        let iterations = 10_000_000
+        let rng = Random 42
+
+        while idx < iterations do
+            let testKey = avxOverrideKeys.[rng.Next (0, avxOverrideKeys.Length)]
+            result <- avxOverrideDictionary.[testKey]
+            idx <- idx + 1
+
+        result
+
 
 [<EntryPoint>]
 let main argv =
 
-    match argv.[0].ToLower() with
-    | "benchmark" ->
-        let summary = BenchmarkRunner.Run<Benchmarks>()
-        ()
-    | "profilecustom" ->
-        let result = profileCustom ()
-        printfn "%A" result
-    | "profilesse" ->
-        let result = profileSse ()
-        printfn "%A" result
-    | _ ->
-        printfn $"Unknown command: {argv.[0]}"
+    // match argv.[0].ToLower() with
+    // | "benchmark" ->
+    //     let summary = BenchmarkRunner.Run<Benchmarks>()
+    //     ()
+    // | "profilecustom" ->
+    //     let result = profileCustom ()
+    //     printfn "%A" result
+    // | "profilesse" ->
+    //     let result = profileSse ()
+    //     printfn "%A" result
+    // | _ ->
+    //     printfn $"Unknown command: {argv.[0]}"
 
+    profileSse ()
+    
+//    profileAvx ()
 
     0 // return an integer exit code
