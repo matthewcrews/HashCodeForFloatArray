@@ -374,46 +374,6 @@ let settings =
         } : Settings
     } |> Array.ofSeq
 
-
-// The dictionary for the Default Settings we will test lookup up values in
-let settingsLookup =
-    settings
-    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    |> Dictionary
-
-
-let settingsSimpleComparerLookup =
-    let values = 
-        settings
-        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    let comparer = SimpleComparer ()
-    Dictionary (values, comparer)
-
-let settingsSseComparerLookup =
-    let values = 
-        settings
-        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    let comparer = SseComparer ()
-    Dictionary (values, comparer)
-
-let settingsAvxComparerLookup =
-    let values = 
-        settings
-        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    let comparer = AvxComparer ()
-    Dictionary (values, comparer)
-
-
-// We create an array we will iterate through to lookup values in
-// the Dictionary. We lay it out in an array to provide the best
-// possible data locality in the loop.
-let settingsTestLookups =
-    seq {
-        for idx in testIndexes ->
-            settings.[idx]
-    } |> Array.ofSeq
-
-
 // Data for Settings_Terrible
 let simpleOverrideSettings =
     seq {
@@ -423,17 +383,6 @@ let simpleOverrideSettings =
             MaxRates = maxRates.[vi.MaxRateIdx]
             ValveStates = valveStates.[vi.ValveStateIdx]
         } : SettingsSimpleOverride
-    } |> Array.ofSeq
-
-let simpleOverrideSettingsLookup =
-    simpleOverrideSettings
-    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    |> Dictionary
-
-let simpleOverrideSettingsTestLookups =
-    seq {
-        for idx in testIndexes ->
-            simpleOverrideSettings.[idx]
     } |> Array.ofSeq
 
 // Data for Settings_SIMD_Equality
@@ -447,17 +396,6 @@ let sseOverrideSettings =
         } : SettingsSseOverride
     } |> Array.ofSeq
 
-let sseOverrideSettingsLookup =
-    sseOverrideSettings
-    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    |> Dictionary
-
-let sseOverrideSettingsTestLookups =
-    seq {
-        for idx in testIndexes ->
-            sseOverrideSettings.[idx]
-    } |> Array.ofSeq
-
 // Data for Settings_SIMD_Equality
 let avxOverrideSettings =
     seq {
@@ -469,18 +407,6 @@ let avxOverrideSettings =
         } : SettingsAvxOverride
     } |> Array.ofSeq
 
-let avxOverrideSettingsLookup =
-    avxOverrideSettings
-    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
-    |> Dictionary
-
-let avxOverrideSettingsTestLookups =
-    seq {
-        for idx in testIndexes ->
-            avxOverrideSettings.[idx]
-    } |> Array.ofSeq
-
-// Data for Settings_SIMD_Equality
 let jeorgSettings =
     seq {
         for vi in valueIndexes ->
@@ -491,16 +417,92 @@ let jeorgSettings =
         } : SettingsJeorg
     } |> Array.ofSeq
 
-let jeorgSettingsLookup =
+// Create the Dictionaries we will be looking up data in
+// The dictionary for the Default Settings we will test lookup up values in
+let settingsDictionary =
+    settings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let simpleComparerDictionary =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = SimpleComparer ()
+    Dictionary (values, comparer)
+
+let sseComparerDictionary =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = SseComparer ()
+    Dictionary (values, comparer)
+
+let avxComparerDictionary =
+    let values = 
+        settings
+        |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    let comparer = AvxComparer ()
+    Dictionary (values, comparer)
+
+let simpleOverrideDictionary =
+    simpleOverrideSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let sseOverrideDictionary =
+    sseOverrideSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let avxOverrideDictionary =
+    avxOverrideSettings
+    |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
+    |> Dictionary
+
+let jeorgSettingsDictionary =
     jeorgSettings
     |> Seq.mapi (fun idx setting -> KeyValuePair (setting, idx))
     |> Dictionary
 
-let jeorgSettingsTestLookups =
+
+// We create an array we will iterate through to lookup values in
+// the Dictionary. We lay it out in an array to provide the best
+// possible data locality in the loop.
+let settingsKeys =
+    seq {
+        for idx in testIndexes ->
+            settings.[idx]
+    } |> Array.ofSeq
+
+
+let simpleOverrideKeys =
+    seq {
+        for idx in testIndexes ->
+            simpleOverrideSettings.[idx]
+    } |> Array.ofSeq
+
+
+let sseOverrideKeys =
+    seq {
+        for idx in testIndexes ->
+            sseOverrideSettings.[idx]
+    } |> Array.ofSeq
+
+
+let avxOverrideKeys =
+    seq {
+        for idx in testIndexes ->
+            avxOverrideSettings.[idx]
+    } |> Array.ofSeq
+
+
+let jeorgKeys =
     seq {
         for idx in testIndexes ->
             jeorgSettings.[idx]
     } |> Array.ofSeq
+
 
 
 type Benchmarks () =
@@ -510,9 +512,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < settingsTestLookups.Length do
-            let testKey = settingsTestLookups.[idx]
-            result <- settingsLookup.[testKey]
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- settingsDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -524,9 +526,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < settingsTestLookups.Length do
-            let testKey = settingsTestLookups.[idx]
-            result <- settingsSimpleComparerLookup.[testKey]
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- settingsDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -538,9 +540,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < settingsTestLookups.Length do
-            let testKey = settingsTestLookups.[idx]
-            result <- settingsSseComparerLookup.[testKey]
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- sseComparerDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -552,9 +554,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < settingsTestLookups.Length do
-            let testKey = settingsTestLookups.[idx]
-            result <- settingsAvxComparerLookup.[testKey]
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- avxComparerDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -566,9 +568,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < simpleOverrideSettingsTestLookups.Length do
-            let testKey = simpleOverrideSettingsTestLookups.[idx]
-            result <- simpleOverrideSettingsLookup.[testKey]
+        while idx < simpleOverrideKeys.Length do
+            let testKey = simpleOverrideKeys.[idx]
+            result <- simpleOverrideDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -580,9 +582,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < sseOverrideSettingsTestLookups.Length do
-            let testKey = sseOverrideSettingsTestLookups.[idx]
-            result <- sseOverrideSettingsLookup.[testKey]
+        while idx < sseOverrideKeys.Length do
+            let testKey = sseOverrideKeys.[idx]
+            result <- sseOverrideDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -594,9 +596,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < avxOverrideSettingsTestLookups.Length do
-            let testKey = avxOverrideSettingsTestLookups.[idx]
-            result <- avxOverrideSettingsLookup.[testKey]
+        while idx < avxOverrideKeys.Length do
+            let testKey = avxOverrideKeys.[idx]
+            result <- avxOverrideDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -608,9 +610,9 @@ type Benchmarks () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < jeorgSettingsTestLookups.Length do
-            let testKey = jeorgSettingsTestLookups.[idx]
-            result <- jeorgSettingsLookup.[testKey]
+        while idx < jeorgKeys.Length do
+            let testKey = jeorgKeys.[idx]
+            result <- jeorgSettingsDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -625,8 +627,8 @@ let profileCustom () =
         let rng = Random 42
 
         while idx < iterations do
-            let testKey = simpleOverrideSettingsTestLookups.[rng.Next (0, simpleOverrideSettingsTestLookups.Length)]
-            result <- simpleOverrideSettingsLookup.[testKey]
+            let testKey = simpleOverrideKeys.[rng.Next (0, simpleOverrideKeys.Length)]
+            result <- simpleOverrideDictionary.[testKey]
             idx <- idx + 1
 
         result
@@ -638,8 +640,8 @@ let profileSse () =
         let rng = Random 42
 
         while idx < iterations do
-            let testKey = sseOverrideSettingsTestLookups.[rng.Next (0, sseOverrideSettingsTestLookups.Length)]
-            result <- sseOverrideSettingsLookup.[testKey]
+            let testKey = sseOverrideKeys.[rng.Next (0, sseOverrideKeys.Length)]
+            result <- sseOverrideDictionary.[testKey]
             idx <- idx + 1
 
         result
