@@ -45,10 +45,11 @@ module Array =
                     let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
                     let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
                     let comparison = Sse2.CompareEqual (aVector, bVector)
-                    let matches = Sse2.MoveMask (comparison.AsByte ())
-
-                    if matches < Vector128.Count then
-                        result <- false
+                    let mutable i = 0
+                    while i < Vector128<float>.Count do
+                        if not (Double.IsNaN (comparison.GetElement i)) then
+                            result <- false
+                        i <- i + 1
 
                     idx <- idx + Vector128.Count
 
@@ -67,21 +68,25 @@ module Array =
         if a.Length = b.Length then
             let mutable result = true
             let mutable idx = 0
-            // let lastBlockIdx = a.Length - (a.Length % Vector256.Count)
-            // let aSpan = a.AsSpan ()
-            // let bSpan = b.AsSpan ()
+            
+            if a.Length > 8 then
+                let lastBlockIdx = a.Length - (a.Length % Vector256.Count)
+                let aSpan = a.AsSpan ()
+                let bSpan = b.AsSpan ()
+                let aPointer = && (aSpan.GetPinnableReference ())
+                let bPointer = && (bSpan.GetPinnableReference ())
 
-            // if a.Length > 8 then
-            //     while idx < lastBlockIdx && result do
-            //         let aVector = Vector256.Create aSpan.[idx]
-            //         let bVector = Vector256.Create bSpan.[idx]
-            //         let comparison = Avx2.CompareEqual (aVector, bVector)
-            //         let matches = Avx2.MoveMask (comparison.AsByte ())
+                while idx < lastBlockIdx && result do
+                    let aVector = Avx2.LoadVector256 (NativePtr.add aPointer idx)
+                    let bVector = Avx2.LoadVector256 (NativePtr.add bPointer idx)
+                    let comparison = Avx2.CompareEqual (aVector, bVector)
+                    let mutable i = 0
+                    while i < Vector256<float>.Count do
+                        if not (Double.IsNaN (comparison.GetElement i)) then
+                            result <- false
+                        i <- i + 1
 
-            //         if matches < Vector256.Count then
-            //             result <- false
-
-            //         idx <- idx + Vector256.Count
+                    idx <- idx + Vector256.Count
 
             while idx < a.Length && idx < b.Length && result do
                 if a.[idx] <> b.[idx] then
@@ -111,11 +116,12 @@ module Array =
                     let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
                     let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
                     let comparison = Sse2.CompareEqual (aVector, bVector)
-                    let matches = Sse2.MoveMask (comparison.AsByte ())
-
-                    if matches < Vector128.Count then
-                        result <- false
-
+                    let mutable i = 0
+                    while i < Vector128<int>.Count do
+                        if comparison.GetElement i <> -1 then
+                            result <- false
+                        i <- i + 1
+                            
                     idx <- idx + Vector128.Count
 
             while idx < a.Length && idx < b.Length && result do
@@ -145,10 +151,11 @@ module Array =
                     let aVector = Avx2.LoadVector256 (NativePtr.add aPointer idx)
                     let bVector = Avx2.LoadVector256 (NativePtr.add bPointer idx)
                     let comparison = Avx2.CompareEqual (aVector, bVector)
-                    let matches = Avx2.MoveMask (comparison.AsByte ())
-
-                    if matches < Vector256.Count then
-                        result <- false
+                    let mutable i = 0
+                    while i < Vector256<int>.Count do
+                        if comparison.GetElement i <> -1 then
+                            result <- false
+                        i <- i + 1
 
                     idx <- idx + Vector256.Count
 
@@ -537,98 +544,84 @@ let jeorgKeys =
 
 type Benchmarks () =
 
-    // [<Benchmark>]
-    // member _.Default () =
-    //     let mutable idx = 0
-    //     let mutable result = 0
-
-    //     while idx < settingsKeys.Length do
-    //         let testKey = settingsKeys.[idx]
-    //         result <- settingsDictionary.[testKey]
-
-    //         idx <- idx + 1
-
-    //     result
-
-
-    // [<Benchmark>]
-    // member _.SimpleComparer () =
-    //     let mutable idx = 0
-    //     let mutable result = 0
-
-    //     while idx < settingsKeys.Length do
-    //         let testKey = settingsKeys.[idx]
-    //         result <- settingsDictionary.[testKey]
-
-    //         idx <- idx + 1
-
-    //     result
-
-
-    // [<Benchmark>]
-    // member _.SseComparer () =
-    //     let mutable idx = 0
-    //     let mutable result = 0
-
-    //     while idx < settingsKeys.Length do
-    //         let testKey = settingsKeys.[idx]
-    //         result <- sseComparerDictionary.[testKey]
-
-    //         idx <- idx + 1
-
-    //     result
-
-
     [<Benchmark>]
-    member _.AvxComparer () =
+    member _.Default () =
         let mutable idx = 0
         let mutable result = 0
 
         while idx < settingsKeys.Length do
             let testKey = settingsKeys.[idx]
-            result <- avxComparerDictionary.[testKey]
+            result <- settingsDictionary.[testKey]
 
             idx <- idx + 1
 
         result
-
-
-    // [<Benchmark>]
-    // member _.SimpleOverride () =
-    //     let mutable idx = 0
-    //     let mutable result = 0
-
-    //     while idx < simpleOverrideKeys.Length do
-    //         let testKey = simpleOverrideKeys.[idx]
-    //         result <- simpleOverrideDictionary.[testKey]
-
-    //         idx <- idx + 1
-
-    //     result
-
-
-    // [<Benchmark>]
-    // member _.SseOverride () =
-    //     let mutable idx = 0
-    //     let mutable result = 0
-
-    //     while idx < sseOverrideKeys.Length do
-    //         let testKey = sseOverrideKeys.[idx]
-    //         result <- sseOverrideDictionary.[testKey]
-
-    //         idx <- idx + 1
-
-    //     result
 
 
     [<Benchmark>]
-    member _.AvxOverride () =
+    member _.SimpleComparer () =
         let mutable idx = 0
         let mutable result = 0
 
-        while idx < avxOverrideKeys.Length do
-            let testKey = avxOverrideKeys.[idx]
-            result <- avxOverrideDictionary.[testKey]
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- settingsDictionary.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.Jeorg () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < jeorgKeys.Length do
+            let testKey = jeorgKeys.[idx]
+            result <- jeorgSettingsDictionary.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.SimpleOverride () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < simpleOverrideKeys.Length do
+            let testKey = simpleOverrideKeys.[idx]
+            result <- simpleOverrideDictionary.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.SseOverride () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < sseOverrideKeys.Length do
+            let testKey = sseOverrideKeys.[idx]
+            result <- sseOverrideDictionary.[testKey]
+
+            idx <- idx + 1
+
+        result
+
+
+    [<Benchmark>]
+    member _.SseComparer () =
+        let mutable idx = 0
+        let mutable result = 0
+
+        while idx < settingsKeys.Length do
+            let testKey = settingsKeys.[idx]
+            result <- sseComparerDictionary.[testKey]
 
             idx <- idx + 1
 
@@ -636,18 +629,31 @@ type Benchmarks () =
 
 
     // [<Benchmark>]
-    // member _.Jeorg () =
+    // member _.AvxComparer () =
     //     let mutable idx = 0
     //     let mutable result = 0
 
-    //     while idx < jeorgKeys.Length do
-    //         let testKey = jeorgKeys.[idx]
-    //         result <- jeorgSettingsDictionary.[testKey]
+    //     while idx < settingsKeys.Length do
+    //         let testKey = settingsKeys.[idx]
+    //         result <- avxComparerDictionary.[testKey]
 
     //         idx <- idx + 1
 
     //     result
 
+
+    // [<Benchmark>]
+    // member _.AvxOverride () =
+    //     let mutable idx = 0
+    //     let mutable result = 0
+
+    //     while idx < avxOverrideKeys.Length do
+    //         let testKey = avxOverrideKeys.[idx]
+    //         result <- avxOverrideDictionary.[testKey]
+
+    //         idx <- idx + 1
+
+    //     result
 
 
 let profileCustom () =
@@ -693,21 +699,54 @@ let profileAvx () =
 [<EntryPoint>]
 let main argv =
 
-    // match argv.[0].ToLower() with
-    // | "benchmark" ->
-    //     let summary = BenchmarkRunner.Run<Benchmarks>()
-    //     ()
-    // | "profilecustom" ->
-    //     let result = profileCustom ()
-    //     printfn "%A" result
-    // | "profilesse" ->
-    //     let result = profileSse ()
-    //     printfn "%A" result
-    // | _ ->
-    //     printfn $"Unknown command: {argv.[0]}"
+//    match argv.[0].ToLower() with
+//    | "benchmark" ->
+//        let summary = BenchmarkRunner.Run<Benchmarks>()
+//        ()
+//    | "profilecustom" ->
+//        let result = profileCustom ()
+//        printfn "%A" result
+//    | "profilesse" ->
+//        let result = profileSse ()
+//        printfn "%A" result
+//    | _ ->
+//        printfn $"Unknown command: {argv.[0]}"
 
-    profileSse ()
+//    profileSse ()
     
-//    profileAvx ()
+    profileAvx ()
 
+//    let a1 = [|1 .. 4|]
+//    let b1 = [|1 .. 4|]
+//    let a1Span = a1.AsSpan ()
+//    let b1Span = b1.AsSpan ()
+//    let a1Pointer = && (a1Span.GetPinnableReference ())
+//    let b1Pointer = && (b1Span.GetPinnableReference ())
+//    let a1Vector = Sse2.LoadVector128 (NativePtr.add a1Pointer 0)
+//    let b1Vector = Sse2.LoadVector128 (NativePtr.add b1Pointer 0)
+//    let comparison1 = Sse2.CompareEqual (a1Vector, b1Vector)
+//    
+//    let bytes1 = comparison1.AsByte ()
+//    let matches1 = Sse2.MoveMask (bytes1)
+//    let v128Count = Vector128<int>.Count
+//    let sse2Result = (matches1 = v128Count)
+//
+//    printfn $"Should be true: {sse2Result}"
+//    
+//    let a2 = [|1 .. 8|]
+//    let b2 = [|1 .. 8|]
+//    let aSpan2 = a2.AsSpan ()
+//    let bSpan2 = b2.AsSpan ()
+//    let a2Pointer = && (aSpan2.GetPinnableReference ())
+//    let b2Pointer = && (bSpan2.GetPinnableReference ())
+//
+//    let a2Vector = Avx2.LoadVector256 (NativePtr.add a2Pointer 0)
+//    let b2Vector = Avx2.LoadVector256 (NativePtr.add b2Pointer 0)
+//    let comparison2 = Avx2.CompareEqual (a2Vector, b2Vector)
+//    let bytes2 = comparison2.AsByte ()
+//    let matches2 = Avx2.MoveMask (bytes2)
+//    let v256Count = Vector256<int>.Count * 32
+//    let avx2Result = (matches2 = v256Count)
+//    printfn $"Should be true: {avx2Result}"
+//    
     0 // return an integer exit code
