@@ -2,7 +2,6 @@
 
 open System
 open FSharp.NativeInterop
-open System.Numerics
 open System.Runtime.Intrinsics.X86
 open System.Runtime.Intrinsics
 open System.Collections.Generic
@@ -21,13 +20,35 @@ module Array =
     // https://github.com/dotnet/fsharp/blob/main/src/fsharp/FSharp.Core/prim-types.fs#L1277
     let floatHash (x: array<float>) =
         let len = x.Length
-        let mutable i = len - 1 
-        if i > defaultHashNodes then i <- defaultHashNodes // limit the hash
+        let mutable idx = len - 1 
+        // if i > defaultHashNodes then i <- defaultHashNodes // limit the hash
         let mutable acc = 0   
-        while (i >= 0) do 
-            acc <- HashCombine i acc (int32 x.[i]);
-            i <- i - 1
+        while (idx >= 0) do 
+            acc <- HashCombine idx acc (int32 x.[idx]);
+            idx <- idx - 1
         acc
+
+    let sseFloatHash (a: array<float>) =
+        let len = a.Length
+        let mutable idx = 0
+        let mutable acc = 0
+
+        if a.Length > 4 then
+            let lastBlockIdx = a.Length - (a.Length % Vector128<float>.Count)
+            let aSpan = a.AsSpan ()
+            let aPointer = && (aSpan.GetPinnableReference ())
+            let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
+            let accVector = Vector128.Create 0.0
+
+            idx <- idx + Vector128.Count
+
+        while idx < a.Length do
+            acc <- HashCombine idx acc (int32 a.[idx]);
+            idx <- idx - 1
+
+        acc
+
+
 
     let sseFloatEquals (a: array<float>) (b: array<float>) =
         if a.Length = b.Length then
@@ -35,20 +56,18 @@ module Array =
             let mutable idx = 0
             
             if a.Length > 4 then
-                let lastBlockIdx = a.Length - (a.Length % Vector128.Count)
+                let lastBlockIdx = a.Length - (a.Length % Vector128<float>.Count)
                 let aSpan = a.AsSpan ()
                 let bSpan = b.AsSpan ()
                 let aPointer = && (aSpan.GetPinnableReference ())
                 let bPointer = && (bSpan.GetPinnableReference ())
-                let zeroVector = Vector128.Create 0.0
 
                 while idx < lastBlockIdx && result do
                     let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
                     let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
                     let comparison = Sse2.CompareEqual (aVector, bVector)
-                    let zeroTest = Sse2.CompareEqual (comparison, zeroVector)
-                    let matches = Sse2.MoveMask (zeroTest.AsByte ())
-                    if matches <> 0 then
+                    let mask = Sse2.MoveMask (comparison.AsDouble())
+                    if mask <> 0x3 then
                         result <- false
 
                     idx <- idx + Vector128.Count
@@ -80,9 +99,8 @@ module Array =
                     let aVector = Avx2.LoadVector256 (NativePtr.add aPointer idx)
                     let bVector = Avx2.LoadVector256 (NativePtr.add bPointer idx)
                     let comparison = Avx2.CompareEqual (aVector, bVector)
-                    let zeroTest = Avx2.CompareEqual (comparison, zeroVector)
-                    let matches = Avx2.MoveMask (zeroTest.AsByte ())
-                    if matches <> 0 then
+                    let mask = Avx2.MoveMask (comparison.AsDouble())
+                    if mask <> 0xF then
                         result <- false
 
                     idx <- idx + Vector256.Count
@@ -116,9 +134,8 @@ module Array =
                     let aVector = Sse2.LoadVector128 (NativePtr.add aPointer idx)
                     let bVector = Sse2.LoadVector128 (NativePtr.add bPointer idx)
                     let comparison = Sse2.CompareEqual (aVector, bVector)
-                    let zeroTest = Sse2.CompareEqual (comparison, zeroVector)
-                    let matches = Sse2.MoveMask (zeroTest.AsByte ())
-                    if matches <> 0 then
+                    let mask = Sse2.MoveMask (comparison.AsDouble())
+                    if mask <> 0x3 then
                         result <- false
                             
                     idx <- idx + Vector128.Count
@@ -151,9 +168,8 @@ module Array =
                     let aVector = Avx2.LoadVector256 (NativePtr.add aPointer idx)
                     let bVector = Avx2.LoadVector256 (NativePtr.add bPointer idx)
                     let comparison = Avx2.CompareEqual (aVector, bVector)
-                    let zeroTest = Avx2.CompareEqual (comparison, zeroVector)
-                    let matches = Avx2.MoveMask (zeroTest.AsByte ())
-                    if matches <> 0 then
+                    let matches = Avx2.MoveMask (comparison.AsDouble())
+                    if matches <> 0xF then
                         result <- false
 
                     idx <- idx + Vector256.Count
@@ -715,37 +731,30 @@ let main argv =
     
 //    profileAvx ()
 
-//    let a1 = [|1.0 .. 4.0|]
-//    let b1 = [|1.0 .. 4.0|]
-//    let a1Span = a1.AsSpan ()
-//    let b1Span = b1.AsSpan ()
-//    let a1Pointer = && (a1Span.GetPinnableReference ())
-//    let b1Pointer = && (b1Span.GetPinnableReference ())
-//    let a1Vector = Sse2.LoadVector128 (NativePtr.add a1Pointer 0)
-//    let b1Vector = Sse2.LoadVector128 (NativePtr.add b1Pointer 0)
-//    let comparison1 = Sse2.CompareEqual (a1Vector, b1Vector)
-//    let zeroVector = Vector128.Create 0.0
-//    let checkZero = Sse2.CompareEqual (comparison1, zeroVector)
-//    let bytes1 = checkZero.AsByte ()
-//    let matches1 = Sse2.MoveMask (bytes1)
-////    let v128Count = Vector128<int>.Count
-//    let sse2Result = (matches1 = 0)
-//
+//    let a = [|1.0 .. 4.0|]
+//    let b = [|1.0 .. 4.0|]
+//    let aSpan = a.AsSpan ()
+//    let bSpan = b.AsSpan ()
+//    let aPointer = && (aSpan.GetPinnableReference ())
+//    let bPointer = && (bSpan.GetPinnableReference ())
+//    let aVector = Sse2.LoadVector128 (NativePtr.add aPointer 0)
+//    let bVector = Sse2.LoadVector128 (NativePtr.add bPointer 0)
+//    let comparison = Sse2.CompareEqual (aVector, bVector)
+//    let mask = Sse2.MoveMask (comparison.AsDouble())
+//    let sse2Result = (mask = 0x3)
 //    printfn $"Should be true: {sse2Result}"
-////    
-//    let a2 = [|1.0 .. 8.0|]
-//    let b2 = [|1.0 .. 8.0|]
-//    let aSpan2 = a2.AsSpan ()
-//    let bSpan2 = b2.AsSpan ()
-//    let a2Pointer = && (aSpan2.GetPinnableReference ())
-//    let b2Pointer = && (bSpan2.GetPinnableReference ())
-//    let zeroVector = Vector256.Create 0.0
-//    let a2Vector = Avx2.LoadVector256 (NativePtr.add a2Pointer 0)
-//    let b2Vector = Avx2.LoadVector256 (NativePtr.add b2Pointer 0)
-//    let comparison2 = Avx2.CompareEqual (a2Vector, b2Vector)
-//    let checkZero = Avx2.CompareEqual (comparison2, zeroVector)
-//    let matches = Avx2.MoveMask (checkZero.AsByte ())
-//    let test = (matches = 0)
+//    
+//    let a = [|1 .. 8|]
+//    let b = [|1 .. 8|]
+//    let aSpan = a.AsSpan ()
+//    let bSpan = b.AsSpan ()
+//    let aPointer = && (aSpan.GetPinnableReference ())
+//    let bPointer = && (bSpan.GetPinnableReference ())
+//    let aVector = Avx2.LoadVector256 (NativePtr.add aPointer 0)
+//    let bVector = Avx2.LoadVector256 (NativePtr.add bPointer 0)
+//    let comparison = Avx2.CompareEqual (aVector, bVector)
+//    let mask = Avx2.MoveMask (comparison.AsDouble())
+//    let test = (mask = 0xF)
 //    printfn $"Should be true: {test}"
 //    
     0 // return an integer exit code
